@@ -279,18 +279,24 @@ def get_video():
 @app.route("/v1/get_comments")
 def get_comments():
     """
-    Returns all comments of a given video_id
+    Returns comments of a given video_id
 
     GET args:
     str: video_id
+    int: ?limit
     """
     video_id = request.args.get("video_id")
+    limit = int(request.args.get("limit"))
 
     if video_id is None or len(video_id) == 0:
         return make_response("Invalid video_id", 500)
 
     c = conn.cursor()
-    c.execute("SELECT * FROM comments WHERE video_id = %s ORDER BY id DESC", (video_id,))
+
+    if limit is None:
+        c.execute("SELECT * FROM comments WHERE video_id = %s ORDER BY id DESC", (video_id,))
+    else:
+        c.execute("SELECT * FROM comments WHERE video_id = %s ORDER BY id DESC LIMIT %s", (video_id, str(limit)))
 
     rows = c.fetchall()
     conn.commit()
