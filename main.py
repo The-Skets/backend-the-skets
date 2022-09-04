@@ -11,8 +11,7 @@ from config import env
 app = Flask(__name__)
 app.secret_key = env["FLASK_SECRET_KEY"]
 
-cors = CORS(app)
-app.config['CORS_HEADERS'] = 'Content-Type'
+cors = CORS(app, supports_credentials=True)
 
 try:
     conn = mariadb.connect(
@@ -261,15 +260,18 @@ def get_video():
     rows = c.fetchall()
 
     videos = []
+    x = 0
 
     for i in rows:
         videos.append({
+            "id": str(x),
             "name": i[2],
             "url_name": i[3],
             "src": i[4],
             "thumbnail_url": i[5],
             "length": i[6]
         })
+        x += 1
 
     return jsonify(videos)
 
@@ -313,6 +315,19 @@ def get_comments():
         })
 
     return jsonify(final)
+
+
+"""
+Debug Routes
+"""
+
+
+@app.route("/debug")
+def debug():
+    return f"""
+    session['logged_in']: <code>{session.get('logged_in')}</code>
+    session['profile']: <code>{session.get("profile")}</code>
+    """
 
 
 if __name__ == "__main__":
