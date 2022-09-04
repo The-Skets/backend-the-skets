@@ -260,20 +260,18 @@ def get_video():
     c.execute("SELECT * FROM videos WHERE performance_name = %s", (performance_id,))
     rows = c.fetchall()
 
-    friendly_name = []
-    url_name = []
-    src = []
-    thumbnail_url = []
-    length = []
+    videos = []
 
     for i in rows:
-        friendly_name.append(i[2])
-        url_name.append(i[3])
-        src.append(i[4])
-        thumbnail_url.append(i[5])
-        length.append(i[6])
+        videos.append({
+            "name": i[2],
+            "url_name": i[3],
+            "src": i[4],
+            "thumbnail_url": i[5],
+            "length": i[6]
+        })
 
-    return jsonify(name=friendly_name, url_name=url_name, src=src, thumbnail_url=thumbnail_url, length=length)
+    return jsonify(videos)
 
 
 @app.route("/v1/get_comments")
@@ -286,17 +284,17 @@ def get_comments():
     int: ?limit
     """
     video_id = request.args.get("video_id")
-    limit = int(request.args.get("limit"))
+    limit = request.args.get("limit")
 
     if video_id is None or len(video_id) == 0:
         return make_response("Invalid video_id", 500)
 
     c = conn.cursor()
 
-    if limit is None:
+    if limit is None or int(limit) < 1:
         c.execute("SELECT * FROM comments WHERE video_id = %s ORDER BY id DESC", (video_id,))
     else:
-        c.execute("SELECT * FROM comments WHERE video_id = %s ORDER BY id DESC LIMIT %s", (video_id, str(limit)))
+        c.execute("SELECT * FROM comments WHERE video_id = %s ORDER BY id DESC LIMIT %s", (video_id, str(int(limit))))
 
     rows = c.fetchall()
     conn.commit()
