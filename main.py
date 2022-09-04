@@ -11,7 +11,7 @@ from config import env
 app = Flask(__name__)
 app.secret_key = env["FLASK_SECRET_KEY"]
 
-cors = CORS(app, supports_credentials=True)
+cors = CORS(app, supports_credentials=True)  # TODO: Fix CORS for prod to prevent XSS
 
 try:
     conn = mariadb.connect(
