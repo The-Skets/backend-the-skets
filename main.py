@@ -181,17 +181,22 @@ def add_comment():
 
     POST json:
     str video_id
+    str performance_id
     str comment_body
     """
 
     video_id = request.json["video_id"]
+    performance_id = request.json["comment_body"]
     comment = request.json["comment_body"]
 
     if video_id is None or comment is None:
-        return make_response("Invalid GET Arguments", 400)
+        return make_response(jsonify({"status": "failure", "message": "Invalid request"}), 400)
 
     if len(comment) == 0 or len(comment) > 2000:
-        return make_response("Invalid Comment Length", 400)
+        return make_response(jsonify({"status": "failure", "message": "Invalid comment length"}), 400)
+
+    if performance_id is None or len(performance_id) < 1:
+        return make_response(jsonify({"status": "failure", "message": "Invalid performance_id"}), 400)
 
     username = session.get("profile")["name"]
 
@@ -199,8 +204,8 @@ def add_comment():
     date_submitted = str(now.strftime('%d-%m-%Y %H:%M:%S'))
 
     c = conn.cursor()
-    c.execute("INSERT INTO comments(username, comment_body, video_id, date_posted) VALUES (?, ?, ?, ?)",
-              (username, comment, video_id, date_submitted))
+    c.execute("INSERT INTO comments(username, comment_body, video_id, date_posted, performance_id) VALUES (?, ?, ?, ?, ?)",
+              (username, comment, video_id, date_submitted, performance_id))
     conn.commit()
 
     return "success"
@@ -253,7 +258,7 @@ def get_video():
     performance_id = request.args.get("performance_id")
 
     if performance_id is None:
-        return make_response("Invalid arg performance_id", 500)
+        return make_response(jsonify({"status": "failure", "message": "Invalid performance_id"}), 400)
 
     c = conn.cursor()
     c.execute("SELECT * FROM videos WHERE performance_name = %s", (performance_id,))
@@ -277,26 +282,29 @@ def get_video():
 
 
 @app.route("/v1/get_comments")
+@cross_origin(supports_credentials=True)
 def get_comments():
     """
     Returns comments of a given video_id
 
     GET args:
     str: video_id
+    str: performance_id
     int: ?limit
     """
     video_id = request.args.get("video_id")
+    performance_id = request.args.get("performance_id")
     limit = request.args.get("limit")
 
-    if video_id is None or len(video_id) == 0:
-        return make_response("Invalid video_id", 500)
+    if video_id is None or len(video_id) == 0 or performance_id is None or len(performance_id) == 0:
+        return make_response(jsonify({"status": "failure", "message": "Invalid video_id or performance_id"}), 400)
 
     c = conn.cursor()
 
     if limit is None or int(limit) < 1:
-        c.execute("SELECT * FROM comments WHERE video_id = %s ORDER BY id DESC", (video_id,))
+        c.execute("SELECT * FROM comments WHERE video_id = %s AND performance_id = %s ORDER BY id DESC", (video_id, performance_id))
     else:
-        c.execute("SELECT * FROM comments WHERE video_id = %s ORDER BY id DESC LIMIT %s", (video_id, str(int(limit))))
+        c.execute("SELECT * FROM comments WHERE video_id = %s AND performance_id = %s ORDER BY id DESC LIMIT %s", (video_id, performance_id, str(int(limit))))
 
     rows = c.fetchall()
     conn.commit()
