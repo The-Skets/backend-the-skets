@@ -44,10 +44,8 @@ def requires_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if "logged_in" not in session or session["logged_in"] == False:
-            # Redirect to Login page here
-            return make_response("Unauthorized", 401)
+            return make_response(jsonify({"status": "failure", "message": "Unauthorized"}), 401)
         return f(*args, **kwargs)
-
     return decorated
 
 
@@ -99,13 +97,13 @@ def sign_up():
     data = request.get_json()
 
     if data["password"] is None or len(data["password"]) < 5:
-        return make_response("Invalid Request (Password)", 400)
+        return make_response(jsonify({"status": "failure", "message": "Invalid Password"}), 400)
 
     if data["username"] is None or len(data["username"]) < 3:
-        return make_response("Invalid Request (Username)", 400)
+        return make_response(jsonify({"status": "failure", "message": "Invalid Username"}), 400)
 
     if data["email"] is None or "@" not in data["email"]:
-        return make_response("Invalid Request (Email)", 400)
+        return make_response(jsonify({"status": "failure", "message": "Invalid Email"}), 400)
 
     username = data["username"]
     password = data["password"]
@@ -208,7 +206,7 @@ def add_comment():
               (username, comment, video_id, date_submitted, performance_id))
     conn.commit()
 
-    return "success"
+    return jsonify({"status": "success"})
 
 
 """
