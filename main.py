@@ -184,7 +184,7 @@ def add_comment():
     """
 
     video_id = request.json["video_id"]
-    performance_id = request.json["comment_body"]
+    performance_id = request.json["performance_id"]
     comment = request.json["comment_body"]
 
     if video_id is None or comment is None:
