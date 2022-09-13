@@ -11,6 +11,8 @@ from config import env
 app = Flask(__name__)
 app.secret_key = env["FLASK_SECRET_KEY"]
 
+app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=True)
+
 cors = CORS(app, supports_credentials=True)  # TODO: Fix CORS for prod to prevent XSS
 
 try:
@@ -329,6 +331,7 @@ Debug Routes
 
 
 @app.route("/debug")
+@cross_origin(supports_credentials=True)
 def debug():
     return f"""
     session['logged_in']: <code>{session.get('logged_in')}</code>
