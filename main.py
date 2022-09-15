@@ -7,8 +7,8 @@ import atexit
 import bcrypt
 import os
 
-# from config import env
-env = os.environ  # For easier deployment
+from config import env
+# env = os.environ  # For easier deployment
 
 app = Flask(__name__)
 app.secret_key = env["FLASK_SECRET_KEY"]
