@@ -85,6 +85,7 @@ def sign_in():
             "name": username,
             "email": row[0][3],
             "pfp_url": row[0][6],
+            "account_type": row[0][4],
             "registration_date": row[0][5]
         }
 
@@ -145,6 +146,7 @@ def sign_up():
         "name": username,
         "email": email,
         "pfp_url": pfp_url,
+        "account_type": "member",
         "registration_date": date_joined,
     }
 
@@ -333,6 +335,8 @@ Debug Routes
 @app.route("/debug")
 @cross_origin(supports_credentials=True)
 def debug():
+    print(session.get("logged_in"))
+    print(session.get("profile"))
     return f"""
     session['logged_in']: <code>{session.get('logged_in')}</code>
     session['profile']: <code>{session.get("profile")}</code>
@@ -341,4 +345,4 @@ def debug():
 
 if __name__ == "__main__":
     atexit.register(close_connections)
-    app.run(debug=True)
+    app.run(debug=True, host="0.0.0.0")
