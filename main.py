@@ -225,6 +225,23 @@ def add_comment():
 
 
 """
+Admin routes
+"""
+
+
+@app.route("/v1/private/admin/get_performances")
+@requires_auth
+@requires_member
+def v1_private_admin_get_performances():
+    """
+    Returns JSON
+    """
+    
+    return ""
+
+
+
+"""
 Public API Routes
 """
 
