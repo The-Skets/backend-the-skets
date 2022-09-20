@@ -12,8 +12,8 @@ from config import env
 
 app = Flask(__name__)
 app.secret_key = env["FLASK_SECRET_KEY"]
-
 app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=True)
+privileged_account_types = ["Admin", "Band Member"]
 
 cors = CORS(app, supports_credentials=True)  # TODO: Fix CORS for prod to prevent XSS
 
@@ -48,6 +48,15 @@ def requires_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if "logged_in" not in session or session["logged_in"] == False:
+            return make_response(jsonify({"status": "failure", "message": "Unauthorized"}), 401)
+        return f(*args, **kwargs)
+    return decorated
+
+
+def requires_band_member(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if "account_type" not in session or session["account_type"] not in privileged_account_types:
             return make_response(jsonify({"status": "failure", "message": "Unauthorized"}), 401)
         return f(*args, **kwargs)
     return decorated
