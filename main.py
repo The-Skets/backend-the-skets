@@ -8,6 +8,7 @@ import bcrypt
 import os
 
 from config import env
+
 # env = os.environ  # For easier deployment
 
 app = Flask(__name__)
@@ -16,6 +17,8 @@ app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=True)
 privileged_account_types = ["Admin", "Band Member"]
 
 cors = CORS(app, supports_credentials=True)  # TODO: Fix CORS for prod to prevent XSS
+
+# TODO: Ensure all SQL operations obtain cursor from get_cursor()
 
 try:
     conn = mariadb.connect(
@@ -34,7 +37,35 @@ Serverside Functions
 """
 
 
+def get_cursor():
+    """
+    This prevents the SQL connection from timing out. Re-connects on error.
+    """
+    global conn
+
+    try:
+        return conn.cursor()
+    except mariadb.InterfaceError:
+        print("refreshing connection")
+        try:
+            conn = mariadb.connect(
+                user=env["SQL_USERNAME"],
+                password=env["SQL_PASSWORD"],
+                host=env["SQL_HOST"],
+                port=3306,
+                database="TheSkets",
+                autocommit=True
+            )
+        except mariadb.Error as e:
+            print(e)
+
+        return conn.cursor()
+
+
 def close_connections():
+    """
+    Called at shutdown of program.
+    """
     conn.close()
     print("Closed Connection")
 
@@ -50,6 +81,7 @@ def requires_auth(f):
         if "logged_in" not in session or session["logged_in"] == False:
             return make_response(jsonify({"status": "failure", "message": "Unauthorized"}), 401)
         return f(*args, **kwargs)
+
     return decorated
 
 
@@ -59,6 +91,7 @@ def requires_band_member(f):
         if "account_type" not in session or session["account_type"] not in privileged_account_types:
             return make_response(jsonify({"status": "failure", "message": "Unauthorized"}), 401)
         return f(*args, **kwargs)
+
     return decorated
 
 
@@ -78,7 +111,7 @@ def sign_in():
     username = data["username"]
     password = data["password"]
 
-    c = conn.cursor()
+    c = get_cursor()
 
     c.execute("SELECT * FROM users WHERE username = %s", (username,))
     row = c.fetchall()
@@ -123,7 +156,7 @@ def sign_up():
     password = data["password"]
     email = data["email"].lower().strip()
 
-    c = conn.cursor()
+    c = get_cursor()
 
     c.execute("SELECT * FROM users WHERE username = %s OR email = %s", (username, email))
     rows = c.fetchall()
@@ -216,9 +249,10 @@ def add_comment():
     now = datetime.datetime.now()
     date_submitted = str(now.strftime('%d-%m-%Y %H:%M:%S'))
 
-    c = conn.cursor()
-    c.execute("INSERT INTO comments(username, comment_body, video_id, date_posted, performance_id) VALUES (?, ?, ?, ?, ?)",
-              (username, comment, video_id, date_submitted, performance_id))
+    c = get_cursor()
+    c.execute(
+        "INSERT INTO comments(username, comment_body, video_id, date_posted, performance_id) VALUES (?, ?, ?, ?, ?)",
+        (username, comment, video_id, date_submitted, performance_id))
     conn.commit()
 
     return jsonify({"status": "success"})
@@ -230,15 +264,78 @@ Admin routes
 
 
 @app.route("/v1/private/admin/get_performances")
-@requires_auth
-@requires_member
+# @requires_auth TODO: uncomment before deploying
+# @requires_band_member
 def v1_private_admin_get_performances():
     """
-    Returns JSON
-    """
-    
-    return ""
+    Returns JSON object containing all performances, ordered newest first, with most associated data.
+    Used in /admin/dashboard
 
+    GET args:
+    bool ?reversed
+    """
+
+    is_reversed = str(request.args.get("reversed")).lower()
+
+    performances = []
+    comments = []
+    videos = []
+
+    c = get_cursor()
+    c.execute("SELECT * FROM performances")
+    rows = c.fetchall()
+
+    for i in rows:
+        c.execute("SELECT * FROM comments WHERE performance_id = %s ORDER BY id DESC LIMIT 25", (i[1],))
+        comment_rows = c.fetchall()
+
+        c.execute("SELECT * FROM videos WHERE performance_id = %s ORDER BY id DESC LIMIT 25", (i[1],))
+        video_rows = c.fetchall()
+
+        for k in comment_rows:
+            comments.append({
+                "username": k[1],
+                "comments_body": k[2],
+                "video_id": k[3],
+                "date_posted": k[4]
+            })
+
+        for j in video_rows:
+            videos.append({
+                "name": j[2],
+                "url_name": j[3],
+                "src": j[4],
+                "thumbnail_url": j[5],
+                "length": j[6]
+            })
+
+        performances.append({
+            "url_name": i[1],
+            "name": i[2],
+            "thumbnail_url": i[3],
+            "date": i[4],
+            "quality": i[5],
+            "videos": videos,
+            "comments": comments
+        })
+
+    if is_reversed == "true":
+        performances.reverse()
+
+    return jsonify(performances)
+
+
+@app.route("/v1/private/admin/delete_performance/<id>", methods=["DELETE"])
+@requires_auth
+@requires_band_member
+def v1_private_admin_delete_performance(id):
+    """
+    Deletes performance matching the performance_id of <id>.
+    Must use DELETE method.
+    """
+    # TODO: Add actual delete logic.
+    print("deleting " + id)
+    return make_response('', 204)
 
 
 """
@@ -256,7 +353,7 @@ def get_performances():
     """
     is_reversed = str(request.args.get("reversed")).lower()
 
-    c = conn.cursor()
+    c = get_cursor()
     c.execute("SELECT * FROM performances")
     rows = c.fetchall()
 
@@ -290,7 +387,7 @@ def get_video():
     if performance_id is None:
         return make_response(jsonify({"status": "failure", "message": "Invalid performance_id"}), 400)
 
-    c = conn.cursor()
+    c = get_cursor()
     c.execute("SELECT * FROM videos WHERE performance_name = %s", (performance_id,))
     rows = c.fetchall()
 
@@ -329,12 +426,14 @@ def get_comments():
     if video_id is None or len(video_id) == 0 or performance_id is None or len(performance_id) == 0:
         return make_response(jsonify({"status": "failure", "message": "Invalid video_id or performance_id"}), 400)
 
-    c = conn.cursor()
+    c = get_cursor()
 
     if limit is None or int(limit) < 1:
-        c.execute("SELECT * FROM comments WHERE video_id = %s AND performance_id = %s ORDER BY id DESC", (video_id, performance_id))
+        c.execute("SELECT * FROM comments WHERE video_id = %s AND performance_id = %s ORDER BY id DESC",
+                  (video_id, performance_id))
     else:
-        c.execute("SELECT * FROM comments WHERE video_id = %s AND performance_id = %s ORDER BY id DESC LIMIT %s", (video_id, performance_id, str(int(limit))))
+        c.execute("SELECT * FROM comments WHERE video_id = %s AND performance_id = %s ORDER BY id DESC LIMIT %s",
+                  (video_id, performance_id, str(int(limit))))
 
     rows = c.fetchall()
     conn.commit()
