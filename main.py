@@ -269,19 +269,66 @@ Admin routes
 def v1_private_admin_get_performances():
     """
     Returns JSON object containing all performances, ordered newest first, with most associated data.
+    Optional argument performance_id to just return the matching performance.
     Used in /admin/dashboard
 
     GET args:
     bool ?reversed
+    string ?performance_id
     """
 
     is_reversed = str(request.args.get("reversed")).lower()
+    performance_id = str(request.args.get("performance_id")).lower()
 
     performances = []
     comments = []
     videos = []
 
     c = get_cursor()
+
+    if len(performance_id) > 0:
+        c.execute("SELECT * FROM performances WHERE url_name = %s", (performance_id,))
+        performance_row = c.fetchall()[0]
+
+        c.execute("SELECT * FROM comments WHERE performance_id = %s ORDER BY id DESC LIMIT 25", (performance_id,))
+        comment_rows = c.fetchall()
+
+        c.execute("SELECT * FROM videos WHERE performance_id = %s ORDER BY id DESC LIMIT 25", (performance_id,))
+        video_rows = c.fetchall()
+
+        for k in comment_rows:
+            comments.append({
+                "username": k[1],
+                "comments_body": k[2],
+                "video_id": k[3],
+                "date_posted": k[4]
+            })
+
+        for j in video_rows:
+            videos.append({
+                "name": j[2],
+                "url_name": j[3],
+                "src": j[4],
+                "thumbnail_url": j[5],
+                "length": j[6]
+            })
+
+        performances.append({
+            "url_name": performance_row[1],
+            "name": performance_row[2],
+            "thumbnail_url": performance_row[3],
+            "date": performance_row[4],
+            "quality": performance_row[5],
+            "videos": videos,
+            "comments": comments
+        })
+
+        if is_reversed == "true":
+            performances.reverse()
+
+        return jsonify(performances)
+
+
     c.execute("SELECT * FROM performances")
     rows = c.fetchall()
 
