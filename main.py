@@ -398,7 +398,7 @@ def v1_private_admin_patch_performance(id):
     # TODO: Add actual delete logic.
     valid_patches = {
         "name": "friendly_name",
-        "image_url": "image_src",
+        "thumbnail url": "image_src",
         "date": "date_of_event",
         "quality": "quality"
     }
@@ -430,6 +430,40 @@ def v1_private_admin_patch_performance(id):
     conn.commit()
 
     return jsonify({"status": "success"})
+
+
+@app.route("/v1/private/admin/get_videos")
+# @requires_auth
+# @requires_band_member TODO: Uncomment this
+def v1_private_admin_get_videos():
+    """
+    Returns all videos
+
+    GET args:
+    string ?reversed
+    """
+    videos = []
+
+    reversed = request.args.get("reversed")
+    if reversed == "true":
+        c = get_cursor()
+        c.execute("SELECT * FROM videos ORDER BY id DESC")
+    else:
+        c = get_cursor()
+        c.execute("SELECT * FROM videos")
+
+    rows = c.fetchall()
+    for i in rows:
+        videos.append({
+            "performance_id": i[1],
+            "name": i[2],
+            "url_name": i[3],
+            "src": i[4],
+            "thumbnail_url": i[5],
+            "length": i[6]
+        })
+
+    return jsonify(videos)
 
 
 """
