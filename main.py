@@ -5,6 +5,7 @@ import datetime
 import mariadb
 import atexit
 import bcrypt
+import json
 import os
 
 from config import env
@@ -278,7 +279,6 @@ def v1_private_admin_get_performances():
     """
 
     is_reversed = str(request.args.get("reversed")).lower()
-    performance_id = str(request.args.get("performance_id")).lower()
 
     performances = []
     comments = []
@@ -286,9 +286,12 @@ def v1_private_admin_get_performances():
 
     c = get_cursor()
 
-    if len(performance_id) > 0:
+    if request.args.get("performance_id") is not None:
+        performance_id = str(request.args.get("performance_id")).lower()
+
         c.execute("SELECT * FROM performances WHERE url_name = %s", (performance_id,))
-        performance_row = c.fetchall()[0]
+        performance_row = c.fetchall()
+        performance_row = performance_row[0]
 
         c.execute("SELECT * FROM comments WHERE performance_id = %s ORDER BY id DESC LIMIT 25", (performance_id,))
         comment_rows = c.fetchall()
@@ -327,7 +330,6 @@ def v1_private_admin_get_performances():
             performances.reverse()
 
         return jsonify(performances)
-
 
     c.execute("SELECT * FROM performances")
     rows = c.fetchall()
@@ -383,6 +385,51 @@ def v1_private_admin_delete_performance(id):
     # TODO: Add actual delete logic.
     print("deleting " + id)
     return make_response('', 204)
+
+
+@app.route("/v1/private/admin/patch_performance/<id>", methods=["PATCH"])  # yes, this is the wrong way to use PATCH
+# @requires_auth
+# @requires_band_member TODO: Uncomment this
+def v1_private_admin_patch_performance(id):
+    """
+    Modifies performance matching the performance_id of <id>.
+    Must use PATCH method.
+    """
+    # TODO: Add actual delete logic.
+    valid_patches = {
+        "name": "friendly_name",
+        "image_url": "image_src",
+        "date": "date_of_event",
+        "quality": "quality"
+    }
+
+    data = json.loads(request.data)
+    print(data)
+
+    if id is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid performance_id"}), 400)
+
+    if data.get("patching") is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid patching (Not provided)"}), 400)
+
+    if data.get("new_value") is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid new_value"}), 400)
+
+    performance_id = str(id).strip()
+    patching = str(data.get("patching")).strip()
+    new_value = str(data.get("new_value")).strip()
+
+    if valid_patches.get(patching) is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid patching (Not valid)"}), 400)
+
+    safe_patching = valid_patches[patching]
+
+    c = get_cursor()
+    # This string manipulation is (hopefully) safe as it's validated against the dictionary
+    c.execute(f"UPDATE performances SET {safe_patching} = %s WHERE url_name = %s", (new_value, performance_id))
+    conn.commit()
+
+    return jsonify({"status": "success"})
 
 
 """
