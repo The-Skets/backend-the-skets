@@ -395,7 +395,7 @@ def v1_private_admin_patch_performance(id):
     Modifies performance matching the performance_id of <id>.
     Must use PATCH method.
     """
-    # TODO: Add actual delete logic.
+
     valid_patches = {
         "name": "friendly_name",
         "thumbnail url": "image_src",
@@ -416,7 +416,7 @@ def v1_private_admin_patch_performance(id):
         return make_response(jsonify({"status": "failure", "message": "Invalid new_value"}), 400)
 
     performance_id = str(id).strip()
-    patching = str(data.get("patching")).strip()
+    patching = str(data.get("patching")).strip().lower()
     new_value = str(data.get("new_value")).strip()
 
     if valid_patches.get(patching) is None:
@@ -435,24 +435,28 @@ def v1_private_admin_patch_performance(id):
 @app.route("/v1/private/admin/patch_video/<performance_id>/<video_id>", methods=["PATCH"])  # yes, this is the wrong way to use PATCH
 # @requires_auth
 # @requires_band_member TODO: Uncomment this
-def v1_private_admin_patch_video(id):
+def v1_private_admin_patch_video(id, performance_id):
     """
     Modifies video matching the supplied ids.
     Must use PATCH method.
     """
-    # TODO: Add actual delete logic.
+
     valid_patches = {
         "name": "friendly_name",
+        "url_name": "url_name",
         "thumbnail url": "image_src",
-        "date": "date_of_event",
         "length": "length",
-        ""
+        "youtube video": "src",
+        "performance": "performance_id"
     }
 
     data = json.loads(request.data)
     print(data)
 
     if id is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid id"}), 400)
+
+    if performance_id is None:
         return make_response(jsonify({"status": "failure", "message": "Invalid performance_id"}), 400)
 
     if data.get("patching") is None:
@@ -461,8 +465,10 @@ def v1_private_admin_patch_video(id):
     if data.get("new_value") is None:
         return make_response(jsonify({"status": "failure", "message": "Invalid new_value"}), 400)
 
-    performance_id = str(id).strip()
-    patching = str(data.get("patching")).strip()
+    video_id = str(id).strip()
+    performance_id = str(performance_id).strip()
+
+    patching = str(data.get("patching")).strip().lower()
     new_value = str(data.get("new_value")).strip()
 
     if valid_patches.get(patching) is None:
@@ -472,7 +478,7 @@ def v1_private_admin_patch_video(id):
 
     c = get_cursor()
     # This string manipulation is (hopefully) safe as it's validated against the dictionary
-    c.execute(f"UPDATE performances SET {safe_patching} = %s WHERE url_name = %s", (new_value, performance_id))
+    c.execute(f"UPDATE videos SET {safe_patching} = %s WHERE performance_id = %s AND url_name = %s", (new_value, performance_id, video_id))
     conn.commit()
 
     return jsonify({"status": "success"})
