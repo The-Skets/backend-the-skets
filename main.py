@@ -432,25 +432,86 @@ def v1_private_admin_patch_performance(id):
     return jsonify({"status": "success"})
 
 
+@app.route("/v1/private/admin/patch_video/<performance_id>/<video_id>", methods=["PATCH"])  # yes, this is the wrong way to use PATCH
+# @requires_auth
+# @requires_band_member TODO: Uncomment this
+def v1_private_admin_patch_video(id):
+    """
+    Modifies video matching the supplied ids.
+    Must use PATCH method.
+    """
+    # TODO: Add actual delete logic.
+    valid_patches = {
+        "name": "friendly_name",
+        "thumbnail url": "image_src",
+        "date": "date_of_event",
+        "length": "length",
+        ""
+    }
+
+    data = json.loads(request.data)
+    print(data)
+
+    if id is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid performance_id"}), 400)
+
+    if data.get("patching") is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid patching (Not provided)"}), 400)
+
+    if data.get("new_value") is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid new_value"}), 400)
+
+    performance_id = str(id).strip()
+    patching = str(data.get("patching")).strip()
+    new_value = str(data.get("new_value")).strip()
+
+    if valid_patches.get(patching) is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid patching (Not valid)"}), 400)
+
+    safe_patching = valid_patches[patching]
+
+    c = get_cursor()
+    # This string manipulation is (hopefully) safe as it's validated against the dictionary
+    c.execute(f"UPDATE performances SET {safe_patching} = %s WHERE url_name = %s", (new_value, performance_id))
+    conn.commit()
+
+    return jsonify({"status": "success"})
+
+
 @app.route("/v1/private/admin/get_videos")
 # @requires_auth
 # @requires_band_member TODO: Uncomment this
 def v1_private_admin_get_videos():
     """
-    Returns all videos
+    Returns all videos, can be filtered by performance_id and url_name.
+    Filtering requires BOTH performance_id and url_name, but is optional.
 
     GET args:
     string ?reversed
+    string ?performance_id
+    string ?url_name
     """
     videos = []
 
     reversed = request.args.get("reversed")
-    if reversed == "true":
-        c = get_cursor()
-        c.execute("SELECT * FROM videos ORDER BY id DESC")
+    performance_id = request.args.get("performance_id")
+    video_id = request.args.get("video_id")
+
+    c = get_cursor()
+
+    if not (performance_id is None or video_id is None):
+        performance_id = performance_id.strip()
+        video_id = video_id.strip()
+
+        if reversed == "true":
+            c.execute("SELECT * FROM videos WHERE performance_id = %s AND url_name = %s ORDER BY id DESC", (performance_id, video_id))
+        else:
+            c.execute("SELECT * FROM videos WHERE performance_id = %s AND url_name = %s", (performance_id, video_id))
     else:
-        c = get_cursor()
-        c.execute("SELECT * FROM videos")
+        if reversed == "true":
+            c.execute("SELECT * FROM videos ORDER BY id DESC")
+        else:
+            c.execute("SELECT * FROM videos")
 
     rows = c.fetchall()
     for i in rows:
