@@ -640,6 +640,7 @@ def get_comments():
 
     for i in rows:
         final.append({
+            "id": i[0],
             "username": i[1],
             "comment_body": i[2],
             "video_id": i[3],
