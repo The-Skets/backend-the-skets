@@ -435,7 +435,7 @@ def v1_private_admin_patch_performance(id):
 @app.route("/v1/private/admin/patch_video/<performance_id>/<video_id>", methods=["PATCH"])  # yes, this is the wrong way to use PATCH
 # @requires_auth
 # @requires_band_member TODO: Uncomment this
-def v1_private_admin_patch_video(id, performance_id):
+def v1_private_admin_patch_video(performance_id, video_id):
     """
     Modifies video matching the supplied ids.
     Must use PATCH method.
@@ -453,7 +453,7 @@ def v1_private_admin_patch_video(id, performance_id):
     data = json.loads(request.data)
     print(data)
 
-    if id is None:
+    if video_id is None:
         return make_response(jsonify({"status": "failure", "message": "Invalid id"}), 400)
 
     if performance_id is None:
@@ -465,7 +465,7 @@ def v1_private_admin_patch_video(id, performance_id):
     if data.get("new_value") is None:
         return make_response(jsonify({"status": "failure", "message": "Invalid new_value"}), 400)
 
-    video_id = str(id).strip()
+    video_id = str(video_id).strip()
     performance_id = str(performance_id).strip()
 
     patching = str(data.get("patching")).strip().lower()
