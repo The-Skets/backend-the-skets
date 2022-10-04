@@ -1,3 +1,5 @@
+import traceback
+
 from flask import Flask, make_response, jsonify, request, session
 from flask_cors import CORS, cross_origin
 from functools import wraps
@@ -14,40 +16,50 @@ from config import env
 
 app = Flask(__name__)
 app.secret_key = env["FLASK_SECRET_KEY"]
-app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=True)
+app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=False)  # TODO: set SESSION_COOKIE_SECURE=True
 privileged_account_types = ["Admin", "Band Member"]
 
 cors = CORS(app, supports_credentials=True)  # TODO: Fix CORS for prod to prevent XSS
 
+
 # TODO: Ensure all SQL operations obtain cursor from get_cursor()
 
-try:
-    conn = mariadb.connect(
-        user=env["SQL_USERNAME"],
-        password=env["SQL_PASSWORD"],
+
+def create_connection_pool():
+    """Creates and returns a Connection Pool"""
+
+    pool = mariadb.ConnectionPool(
         host=env["SQL_HOST"],
         port=3306,
+        user=env["SQL_USERNAME"],
+        password=env["SQL_PASSWORD"],
+        pool_name="TheSkets",
         database="TheSkets",
-        autocommit=True
+        autocommit=True,
+        pool_size=5
     )
-except mariadb.Error as e:
-    print(e)
+
+    return pool
+
+
+pool = create_connection_pool()
 
 """
 Serverside Functions
 """
 
 
-def get_cursor():
+def get_connection():
     """
     This prevents the SQL connection from timing out. Re-connects on error.
     """
     global conn
 
     try:
-        return conn.cursor()
-    except mariadb.InterfaceError:
-        print("refreshing connection")
+        return pool.get_connection()
+    except mariadb.PoolError as e:
+        print(e)
+        print("Creating fallback connection")
         try:
             conn = mariadb.connect(
                 user=env["SQL_USERNAME"],
@@ -60,15 +72,19 @@ def get_cursor():
         except mariadb.Error as e:
             print(e)
 
-        return conn.cursor()
+        return conn
 
 
 def close_connections():
     """
     Called at shutdown of program.
     """
-    conn.close()
-    print("Closed Connection")
+    try:
+        conn.close()
+    except:
+        print("no conn variable, ignoring")
+    pool.close()
+    print("Closed Connection(s)")
 
 
 """
@@ -112,10 +128,12 @@ def sign_in():
     username = data["username"]
     password = data["password"]
 
-    c = get_cursor()
+    conn = get_connection()
+    c = conn.cursor()
 
     c.execute("SELECT * FROM users WHERE username = %s", (username,))
     row = c.fetchall()
+    conn.close()
 
     if len(row) < 1:
         return make_response(jsonify({"status": "failure", "message": "Account does not exist"}), 400)
@@ -157,19 +175,23 @@ def sign_up():
     password = data["password"]
     email = data["email"].lower().strip()
 
-    c = get_cursor()
+    conn = get_connection()
+    c = conn.cursor()
 
     c.execute("SELECT * FROM users WHERE username = %s OR email = %s", (username, email))
     rows = c.fetchall()
 
     if len(rows) > 0:
         if rows[0][1] == username:
+            conn.close()
             return make_response(
                 jsonify({"status": "failure", "message": "An account with this username already exists."}))
         elif rows[0][3] == email:
+            conn.close()
             return make_response(
                 jsonify({"status": "failure", "message": "An account with this email already exists."}))
         else:
+            conn.close()
             return make_response(jsonify({"status": "failure", "message": "Account already exists."}))
 
     now = datetime.datetime.now()
@@ -185,6 +207,7 @@ def sign_up():
         (username, hashed, email, pfp_url, date_joined, "member"))  # TODO: add default pfp_url
 
     conn.commit()
+    conn.close()
 
     session["logged_in"] = True
     session["profile"] = {
@@ -250,11 +273,14 @@ def add_comment():
     now = datetime.datetime.now()
     date_submitted = str(now.strftime('%d-%m-%Y %H:%M:%S'))
 
-    c = get_cursor()
+    conn = get_connection()
+    c = conn.cursor()
+
     c.execute(
         "INSERT INTO comments(username, comment_body, video_id, date_posted, performance_id) VALUES (?, ?, ?, ?, ?)",
         (username, comment, video_id, date_submitted, performance_id))
     conn.commit()
+    conn.close()
 
     return jsonify({"status": "success"})
 
@@ -284,7 +310,8 @@ def v1_private_admin_get_performances():
     comments = []
     videos = []
 
-    c = get_cursor()
+    conn = get_connection()
+    c = conn.cursor()
 
     if request.args.get("performance_id") is not None:
         performance_id = str(request.args.get("performance_id")).lower()
@@ -298,6 +325,8 @@ def v1_private_admin_get_performances():
 
         c.execute("SELECT * FROM videos WHERE performance_id = %s ORDER BY id DESC LIMIT 25", (performance_id,))
         video_rows = c.fetchall()
+
+        conn.close()
 
         for k in comment_rows:
             comments.append({
@@ -340,6 +369,8 @@ def v1_private_admin_get_performances():
 
         c.execute("SELECT * FROM videos WHERE performance_id = %s ORDER BY id DESC LIMIT 25", (i[1],))
         video_rows = c.fetchall()
+
+        conn.close()
 
         for k in comment_rows:
             comments.append({
@@ -424,15 +455,19 @@ def v1_private_admin_patch_performance(id):
 
     safe_patching = valid_patches[patching]
 
-    c = get_cursor()
+    conn = get_connection()
+    c = conn.cursor()
+
     # This string manipulation is (hopefully) safe as it's validated against the dictionary
     c.execute(f"UPDATE performances SET {safe_patching} = %s WHERE url_name = %s", (new_value, performance_id))
     conn.commit()
+    conn.close()
 
     return jsonify({"status": "success"})
 
 
-@app.route("/v1/private/admin/patch_video/<performance_id>/<video_id>", methods=["PATCH"])  # yes, this is the wrong way to use PATCH
+@app.route("/v1/private/admin/patch_video/<performance_id>/<video_id>",
+           methods=["PATCH"])  # yes, this is the wrong way to use PATCH
 # @requires_auth
 # @requires_band_member TODO: Uncomment this
 def v1_private_admin_patch_video(performance_id, video_id):
@@ -476,10 +511,14 @@ def v1_private_admin_patch_video(performance_id, video_id):
 
     safe_patching = valid_patches[patching]
 
-    c = get_cursor()
+    conn = get_connection()
+    c = conn.cursor()
+
     # This string manipulation is (hopefully) safe as it's validated against the dictionary
-    c.execute(f"UPDATE videos SET {safe_patching} = %s WHERE performance_id = %s AND url_name = %s", (new_value, performance_id, video_id))
+    c.execute(f"UPDATE videos SET {safe_patching} = %s WHERE performance_id = %s AND url_name = %s",
+              (new_value, performance_id, video_id))
     conn.commit()
+    conn.close()
 
     return jsonify({"status": "success"})
 
@@ -503,14 +542,16 @@ def v1_private_admin_get_videos():
     performance_id = request.args.get("performance_id")
     video_id = request.args.get("video_id")
 
-    c = get_cursor()
+    conn = get_connection()
+    c = conn.cursor()
 
     if not (performance_id is None or video_id is None):
         performance_id = performance_id.strip()
         video_id = video_id.strip()
 
         if reversed == "true":
-            c.execute("SELECT * FROM videos WHERE performance_id = %s AND url_name = %s ORDER BY id DESC", (performance_id, video_id))
+            c.execute("SELECT * FROM videos WHERE performance_id = %s AND url_name = %s ORDER BY id DESC",
+                      (performance_id, video_id))
         else:
             c.execute("SELECT * FROM videos WHERE performance_id = %s AND url_name = %s", (performance_id, video_id))
     else:
@@ -520,6 +561,8 @@ def v1_private_admin_get_videos():
             c.execute("SELECT * FROM videos")
 
     rows = c.fetchall()
+    conn.close()
+
     for i in rows:
         videos.append({
             "performance_id": i[1],
@@ -548,9 +591,12 @@ def get_performances():
     """
     is_reversed = str(request.args.get("reversed")).lower()
 
-    c = get_cursor()
+    conn = get_connection()
+    c = conn.cursor()
+
     c.execute("SELECT * FROM performances")
     rows = c.fetchall()
+    conn.close()
 
     performances = []
 
@@ -582,9 +628,13 @@ def get_video():
     if performance_id is None:
         return make_response(jsonify({"status": "failure", "message": "Invalid performance_id"}), 400)
 
-    c = get_cursor()
-    c.execute("SELECT * FROM videos WHERE performance_name = %s", (performance_id,))
+    conn = get_connection()
+    c = conn.cursor()
+
+    c.execute("SELECT * FROM videos WHERE performance_id = %s", (performance_id,))
     rows = c.fetchall()
+
+    conn.close()
 
     videos = []
     x = 0
@@ -621,7 +671,8 @@ def get_comments():
     if video_id is None or len(video_id) == 0 or performance_id is None or len(performance_id) == 0:
         return make_response(jsonify({"status": "failure", "message": "Invalid video_id or performance_id"}), 400)
 
-    c = get_cursor()
+    conn = get_connection()
+    c = conn.cursor()
 
     if limit is None or int(limit) < 1:
         c.execute("SELECT * FROM comments WHERE video_id = %s AND performance_id = %s ORDER BY id DESC",
@@ -632,6 +683,7 @@ def get_comments():
 
     rows = c.fetchall()
     conn.commit()
+    conn.close()
 
     if len(rows) == 0:
         return {}
