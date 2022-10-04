@@ -1,5 +1,3 @@
-import traceback
-
 from flask import Flask, make_response, jsonify, request, session
 from flask_cors import CORS, cross_origin
 from functools import wraps
@@ -8,11 +6,8 @@ import mariadb
 import atexit
 import bcrypt
 import json
-import os
 
 from config import env
-
-# env = os.environ  # For easier deployment
 
 app = Flask(__name__)
 app.secret_key = env["FLASK_SECRET_KEY"]
@@ -96,6 +91,7 @@ def requires_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if "logged_in" not in session or session["logged_in"] == False:
+            print("Not Logged In", session)  # TODO: Remove debug prints
             return make_response(jsonify({"status": "failure", "message": "Unauthorized"}), 401)
         return f(*args, **kwargs)
 
@@ -105,7 +101,9 @@ def requires_auth(f):
 def requires_band_member(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if "account_type" not in session or session["account_type"] not in privileged_account_types:
+        if "profile" not in session or "account_type" not in session["profile"] or session["profile"][
+            "account_type"] not in privileged_account_types:
+            print("Not Band Member", session)  # TODO: Remove debug prints
             return make_response(jsonify({"status": "failure", "message": "Unauthorized"}), 401)
         return f(*args, **kwargs)
 
@@ -291,8 +289,8 @@ Admin routes
 
 
 @app.route("/v1/private/admin/get_performances")
-# @requires_auth TODO: uncomment before deploying
-# @requires_band_member
+@requires_auth
+@requires_band_member
 def v1_private_admin_get_performances():
     """
     Returns JSON object containing all performances, ordered newest first, with most associated data.
@@ -419,8 +417,8 @@ def v1_private_admin_delete_performance(id):
 
 
 @app.route("/v1/private/admin/patch_performance/<id>", methods=["PATCH"])  # yes, this is the wrong way to use PATCH
-# @requires_auth
-# @requires_band_member TODO: Uncomment this
+@requires_auth
+@requires_band_member
 def v1_private_admin_patch_performance(id):
     """
     Modifies performance matching the performance_id of <id>.
@@ -468,8 +466,8 @@ def v1_private_admin_patch_performance(id):
 
 @app.route("/v1/private/admin/patch_video/<performance_id>/<video_id>",
            methods=["PATCH"])  # yes, this is the wrong way to use PATCH
-# @requires_auth
-# @requires_band_member TODO: Uncomment this
+@requires_auth
+@requires_band_member
 def v1_private_admin_patch_video(performance_id, video_id):
     """
     Modifies video matching the supplied ids.
@@ -524,8 +522,8 @@ def v1_private_admin_patch_video(performance_id, video_id):
 
 
 @app.route("/v1/private/admin/get_videos")
-# @requires_auth
-# @requires_band_member TODO: Uncomment this
+@requires_auth
+@requires_band_member
 def v1_private_admin_get_videos():
     """
     Returns all videos, can be filtered by performance_id and url_name.
@@ -574,6 +572,68 @@ def v1_private_admin_get_videos():
         })
 
     return jsonify(videos)
+
+
+@app.route("/v1/private/admin/get_comments")
+@requires_auth
+@requires_band_member
+def v1_private_admin_get_comments():
+    """
+    Returns all comments
+
+    GET Args:
+    int ?limit
+    str ?comment_id
+    """
+    limit = request.args.get("limit")
+    comment_id = request.args.get("comment_id")
+
+    conn = get_connection()
+    c = conn.cursor()
+
+    if comment_id is not None:
+        c.execute("SELECT * FROM comments WHERE id = %s", (str(int(comment_id)),))
+    elif limit is None or int(limit) < 1:
+        c.execute("SELECT * FROM comments ORDER BY id DESC")
+    else:
+        c.execute("SELECT * FROM comments ORDER BY id DESC LIMIT %s", (str(int(limit)),))
+
+    rows = c.fetchall()
+    conn.close()
+
+    if len(rows) == 0:
+        return jsonify({})
+
+    final = []
+
+    for i in rows:
+        final.append({
+            "id": i[0],
+            "username": i[1],
+            "comment_body": i[2],
+            "video_id": i[3],
+            "performance_id": i[5],
+            "date_posted": i[4]
+        })
+
+    return jsonify(final)
+
+
+@requires_auth
+@requires_band_member
+@app.route("/v1/private/admin/delete_comment/<id>", methods=["DELETE"])
+def v1_private_admin_delete_comment(id):
+    if id is None or int(id) < 0:
+        return make_response(jsonify({"status": "failure", "message": "Invalid id"}), 400)
+
+    conn = get_connection()
+    c = conn.cursor()
+
+    c.execute("DELETE FROM comments WHERE id = %s", (id,))
+    conn.commit()
+    conn.close()
+
+    return make_response("", 204)
 
 
 """
@@ -682,7 +742,6 @@ def get_comments():
                   (video_id, performance_id, str(int(limit))))
 
     rows = c.fetchall()
-    conn.commit()
     conn.close()
 
     if len(rows) == 0:
