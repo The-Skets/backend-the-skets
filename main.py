@@ -1,4 +1,5 @@
 from flask import Flask, make_response, jsonify, request, session
+from werkzeug.utils import secure_filename
 from flask_cors import CORS, cross_origin
 from functools import wraps
 import datetime
@@ -9,9 +10,15 @@ import json
 
 from config import env
 
+UPLOAD_FOLDER = '/path/to/the/uploads'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
+DOMAIN = 'http://192.168.1.209:5000'
+
 app = Flask(__name__)
 app.secret_key = env["FLASK_SECRET_KEY"]
 app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=False)  # TODO: set SESSION_COOKIE_SECURE=True
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
 privileged_account_types = ["Admin", "Band Member"]
 
 cors = CORS(app, supports_credentials=True)  # TODO: Fix CORS for prod to prevent XSS
@@ -80,6 +87,10 @@ def close_connections():
         print("no conn variable, ignoring")
     pool.close()
     print("Closed Connection(s)")
+
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
 """
@@ -160,18 +171,24 @@ def sign_in():
 def sign_up():
     data = request.get_json()
 
-    if data["password"] is None or len(data["password"]) < 5:
-        return make_response(jsonify({"status": "failure", "message": "Invalid Password"}), 400)
+    if data["password"] is None or len(data["password"]) < 6:
+        return make_response(jsonify({"status": "failure", "message": "Password too short"}), 400)
 
     if data["username"] is None or len(data["username"]) < 3:
-        return make_response(jsonify({"status": "failure", "message": "Invalid Username"}), 400)
+        return make_response(jsonify({"status": "failure", "message": "Username too short"}), 400)
 
     if data["email"] is None or "@" not in data["email"]:
         return make_response(jsonify({"status": "failure", "message": "Invalid Email"}), 400)
 
-    username = data["username"]
+    username = data["username"].strip()
     password = data["password"]
     email = data["email"].lower().strip()
+
+    if secure_filename(username) != username:
+        return make_response(jsonify({"status": "failure", "message": "Invalid characters in username."}), 400)
+
+    if not re.match("^[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)?$", username):
+        return make_response(jsonify({"status": "failure", "message": "Invalid characters in username."}), 400)
 
     conn = get_connection()
     c = conn.cursor()
@@ -281,6 +298,33 @@ def add_comment():
     conn.close()
 
     return jsonify({"status": "success"})
+
+
+@app.route("/v1/private/new_profile_image", methods=["POST"])
+@requires_auth
+def v1_private_new_profile_image():
+    if "file" not in request.files:
+        return make_response(jsonify({"status": "failure", "message": "No image provided."}), 400)
+
+    file = request.files['file']
+
+    if file.filename == '':
+        return make_response(jsonify({"status": "failure", "message": "No image provided."}), 400)
+
+    if not session.get("profile") or not session.get("profile")["username"]:
+        return make_response(jsonify({"status": "failure", "message": "Error with session, please relog."}), 400)
+
+    if file and allowed_file(file.filename):
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(session.get("profile")["username"])))
+
+        conn = get_connection()
+        c = conn.cursor()
+
+        c.execute("UPDATE users SET pfp_ufl = %s WHERE email = %s", (DOMAIN+"/v1/pfp/"+secure_filename(session.get("profile")["username"]), session.get("profile")[email]))
+        
+        conn.commit()
+        conn.close()
+    return ""
 
 
 """
