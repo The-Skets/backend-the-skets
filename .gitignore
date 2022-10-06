@@ -1,1 +1,5 @@
 config.py
+profile_pictures/*
+
+!profile_pictures/default.jpg
+!profile_pictures/

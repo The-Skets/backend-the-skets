@@ -1,4 +1,4 @@
-from flask import Flask, make_response, jsonify, request, session
+from flask import Flask, make_response, jsonify, request, session, send_from_directory
 from werkzeug.utils import secure_filename
 from flask_cors import CORS, cross_origin
 from functools import wraps
@@ -7,11 +7,14 @@ import mariadb
 import atexit
 import bcrypt
 import json
+import re
+import os
 
 from config import env
 
-UPLOAD_FOLDER = '/path/to/the/uploads'
+UPLOAD_FOLDER = 'C:\\Users\\annan\\Documents\projects\\the-skets-rewrite\\backend-the-skets\\profile_pictures'  # TODO: Change this before deployment
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
+FORBIDDEN_NAMES = ["default"]  # Ensure all these are lower-case.
 DOMAIN = 'http://192.168.1.209:5000'
 
 app = Flask(__name__)
@@ -182,7 +185,10 @@ def sign_up():
 
     username = data["username"].strip()
     password = data["password"]
-    email = data["email"].lower().strip()
+    email = data["email"].lower().strip()  # DO NOT REMOVE
+
+    if username.lower() in FORBIDDEN_NAMES:
+        return make_response(jsonify({"status": "failure", "message": "Invalid username."}), 400)
 
     if secure_filename(username) != username:
         return make_response(jsonify({"status": "failure", "message": "Invalid characters in username."}), 400)
@@ -197,11 +203,11 @@ def sign_up():
     rows = c.fetchall()
 
     if len(rows) > 0:
-        if rows[0][1] == username:
+        if rows[0][1].lower() == username.lower():
             conn.close()
             return make_response(
                 jsonify({"status": "failure", "message": "An account with this username already exists."}))
-        elif rows[0][3] == email:
+        elif rows[0][3].lower() == email:
             conn.close()
             return make_response(
                 jsonify({"status": "failure", "message": "An account with this email already exists."}))
@@ -303,28 +309,41 @@ def add_comment():
 @app.route("/v1/private/new_profile_image", methods=["POST"])
 @requires_auth
 def v1_private_new_profile_image():
+    print(request)
     if "file" not in request.files:
+        print("file not in request.files")
         return make_response(jsonify({"status": "failure", "message": "No image provided."}), 400)
 
     file = request.files['file']
 
     if file.filename == '':
+        print("filename empty")
         return make_response(jsonify({"status": "failure", "message": "No image provided."}), 400)
 
-    if not session.get("profile") or not session.get("profile")["username"]:
-        return make_response(jsonify({"status": "failure", "message": "Error with session, please relog."}), 400)
+    if not session.get("profile") or not session.get("profile")["name"]:
+        return make_response(jsonify({"status": "failure", "message": "Error with session, please login again."}), 400)
 
     if file and allowed_file(file.filename):
-        file.save(os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(session.get("profile")["username"])))
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(session.get("profile")["name"] + ".jpg")))
 
         conn = get_connection()
         c = conn.cursor()
 
-        c.execute("UPDATE users SET pfp_ufl = %s WHERE email = %s", (DOMAIN+"/v1/pfp/"+secure_filename(session.get("profile")["username"]), session.get("profile")[email]))
-        
+        c.execute("UPDATE users SET pfp_url = %s WHERE email = %s", (
+            DOMAIN + "/v1/pfp/" + secure_filename(session.get("profile")["name"] + ".jpg"),
+            session.get("profile")["email"]))
+
+        # I'm not sure why this doesn't work in-place. probably something to do with the list depth.
+        profile = session["profile"]
+        profile["pfp_url"] = (DOMAIN + "/v1/pfp/" + secure_filename(session.get("profile")["name"] + ".jpg"))
+        session["profile"] = profile
+
         conn.commit()
         conn.close()
-    return ""
+
+        return jsonify({"status": "success"})
+
+    return make_response(jsonify({"status": "failure", "message": "Error with image."}), 400)
 
 
 """
@@ -803,6 +822,11 @@ def get_comments():
         })
 
     return jsonify(final)
+
+
+@app.route("/v1/pfp/<path:path>")
+def v1_pfp(path):
+    return send_from_directory('profile_pictures', path)
 
 
 """
