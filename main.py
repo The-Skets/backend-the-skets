@@ -685,7 +685,7 @@ def v1_private_admin_get_comments():
 @requires_auth
 @requires_band_member
 @app.route("/v1/private/admin/delete_comment/<id>", methods=["DELETE"])
-def v1_private_admin_delete_comment(id):
+def v1_private_admin_delete_comment(id):  # TODO: Comment this + below
     if id is None or int(id) < 0:
         return make_response(jsonify({"status": "failure", "message": "Invalid id"}), 400)
 
@@ -697,6 +697,42 @@ def v1_private_admin_delete_comment(id):
     conn.close()
 
     return make_response("", 204)
+
+
+@requires_auth
+@requires_band_member
+@app.route("/v1/private/admin/get_users")
+def v1_private_admin_get_users():
+    reversed = request.args.get("reversed")
+    limit = request.args.get("limit")
+
+    conn = get_connection()
+    c = conn.cursor()
+
+    if reversed and limit:
+        c.execute("SELECT * FROM users ORDER BY id DESC LIMIT %s", (str(int(limit))))
+    elif reversed:
+        c.execute("SELECT * FROM users ORDER BY id DESC")
+    elif limit:
+        c.execute("SELECT * FROM users LIMIT %s", (str(int(limit))))
+    else:
+        c.execute("SELECT * FROM users")
+
+    rows = c.fetchall()
+    conn.close()
+
+    users = []
+
+    for i in rows:
+        users.append({
+            "id": i[0],
+            "username": i[1],
+            "email": i[3],
+            "account_type": i[4],
+            "date_joined": i[5]
+        })
+
+    return jsonify(users)
 
 
 """
