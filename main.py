@@ -709,12 +709,15 @@ def v1_private_admin_get_users():
     conn = get_connection()
     c = conn.cursor()
 
+    if str(limit) == 0:
+        limit = "0"
+
     if reversed and limit:
-        c.execute("SELECT * FROM users ORDER BY id DESC LIMIT %s", (str(int(limit))))
+        c.execute("SELECT * FROM users ORDER BY id DESC LIMIT %s", (str(int(limit)),))
     elif reversed:
         c.execute("SELECT * FROM users ORDER BY id DESC")
     elif limit:
-        c.execute("SELECT * FROM users LIMIT %s", (str(int(limit))))
+        c.execute("SELECT * FROM users LIMIT %s", (str(int(limit)),))
     else:
         c.execute("SELECT * FROM users")
 
