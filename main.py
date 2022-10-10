@@ -760,7 +760,8 @@ def v1_private_admin_get_users():
             "username": i[1],
             "email": i[3],
             "account_type": i[4],
-            "date_joined": i[5]
+            "date_joined": i[5],
+            "number_of_comments": 0  # TODO: Impliment or change this.
         })
 
     return jsonify(users)
