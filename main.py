@@ -527,6 +527,34 @@ def v1_private_admin_patch_performance(id):
     return jsonify({"status": "success"})
 
 
+@app.route("/v1/private/admin/delete_video/<performance_id>/<video_id>", methods=["DELETE"])
+@requires_auth
+@requires_band_member
+def v1_private_admin_delete_video(performance_id, video_id):
+    """
+    Deletes video matching the supplied ids.
+    Must use DELETE method.
+    """
+
+    if performance_id is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid performance_id"}), 400)
+    if video_id is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid video_id"}), 400)
+
+    video_id = str(video_id).strip()
+    performance_id = str(performance_id).strip()
+
+    conn = get_connection()
+    c = conn.cursor()
+
+    c.execute("DELETE FROM videos WHERE url_name = %s AND performance_id = %s", (video_id, performance_id,))
+
+    conn.commit()
+    conn.close()
+
+    return make_response(204)
+
+
 @app.route("/v1/private/admin/patch_video/<performance_id>/<video_id>",
            methods=["PATCH"])  # yes, this is the wrong way to use PATCH
 @requires_auth
