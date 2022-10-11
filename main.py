@@ -28,6 +28,7 @@ cors = CORS(app, supports_credentials=True)  # TODO: Fix CORS for prod to preven
 
 
 # TODO: Ensure all SQL operations obtain cursor from get_cursor()
+# TODO: Ensure all strip()'s are called after variable is validated to exist.
 
 
 def create_connection_pool():
@@ -547,7 +548,7 @@ def v1_private_admin_delete_video(performance_id, video_id):
     conn = get_connection()
     c = conn.cursor()
 
-    c.execute("DELETE FROM videos WHERE url_name = %s AND performance_id = %s", (video_id, performance_id,))
+    # c.execute("DELETE FROM videos WHERE url_name = %s AND performance_id = %s", (video_id, performance_id,))  TODO: Uncomment this after testing
 
     conn.commit()
     conn.close()
@@ -713,7 +714,10 @@ def v1_private_admin_get_comments():
 @requires_auth
 @requires_band_member
 @app.route("/v1/private/admin/delete_comment/<id>", methods=["DELETE"])
-def v1_private_admin_delete_comment(id):  # TODO: Comment this + below
+def v1_private_admin_delete_comment(id):
+    """
+    Deletes comment matching id. Must use DELETE method.
+    """
     if id is None or int(id) < 0:
         return make_response(jsonify({"status": "failure", "message": "Invalid id"}), 400)
 
@@ -731,11 +735,39 @@ def v1_private_admin_delete_comment(id):  # TODO: Comment this + below
 @requires_band_member
 @app.route("/v1/private/admin/get_users")
 def v1_private_admin_get_users():
+    """
+    Returns all users. Optional argument id returns only one user matching the id.
+
+    GET Args:
+    str ?reversed
+    int ?limit
+    str ?id
+    """
     reversed = request.args.get("reversed")
     limit = request.args.get("limit")
+    id = request.args.get("id")
 
     conn = get_connection()
     c = conn.cursor()
+
+    if id is not None:
+        users = []
+        c.execute("SELECT * FROM users WHERE id = %s", (int(id),))
+        rows = c.fetchall()
+
+        conn.close()
+
+        for i in rows:
+            users.append({
+                "id": i[0],
+                "username": i[1],
+                "email": i[3],
+                "account_type": i[4],
+                "date_joined": i[5]
+            })
+
+        return jsonify(users)
+
 
     if str(limit) == 0:
         limit = "0"
@@ -760,11 +792,56 @@ def v1_private_admin_get_users():
             "username": i[1],
             "email": i[3],
             "account_type": i[4],
-            "date_joined": i[5],
-            "number_of_comments": 0  # TODO: Impliment or change this.
+            "date_joined": i[5]
         })
 
     return jsonify(users)
+
+
+@app.route("/v1/private/admin/patch_user/<id>", methods=["PATCH"])
+@requires_auth
+@requires_band_member
+def v1_private_admin_patch_user(id):
+    """
+    Modifies user matching the <id>.
+    Must use PATCH method.
+    """
+
+    valid_patches = {
+        "account type": "account_type",
+    }
+
+    data = json.loads(request.data)
+    print(data)
+
+    if id is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid id"}), 400)
+
+    if data.get("patching") is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid patching (Not provided)"}), 400)
+
+    if data.get("new_value") is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid new_value"}), 400)
+
+    id = int(str(id).strip())
+    patching = str(data.get("patching")).strip().lower()
+    new_value = str(data.get("new_value")).strip()
+
+    if valid_patches.get(patching) is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid patching (Not valid)"}), 400)
+
+    safe_patching = valid_patches[patching]
+
+    conn = get_connection()
+    c = conn.cursor()
+
+    # This string manipulation is (hopefully) safe as it's validated against the dictionary
+    c.execute(f"UPDATE users SET {safe_patching} = %s WHERE id = %s", (new_value, id))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "success"})
 
 
 """
