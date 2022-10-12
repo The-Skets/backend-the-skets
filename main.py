@@ -222,7 +222,7 @@ def sign_up():
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
 
-    pfp_url = "https://google.com"
+    pfp_url = DOMAIN+"/v1/pfp/default.jpg"
 
     c.execute(
         "INSERT INTO users(username, password_hash, email, pfp_url, date_joined, account_type) VALUES(?, ?, ?, ?, ?, ?)",
@@ -553,7 +553,7 @@ def v1_private_admin_delete_video(performance_id, video_id):
     conn.commit()
     conn.close()
 
-    return make_response(204)
+    return make_response("", 204)
 
 
 @app.route("/v1/private/admin/patch_video/<performance_id>/<video_id>",
@@ -842,6 +842,24 @@ def v1_private_admin_patch_user(id):
     conn.close()
 
     return jsonify({"status": "success"})
+
+
+@app.route("/v1/private/admin/delete_user/<id>", methods=["PATCH"])
+@requires_auth
+@requires_band_member
+def v1_private_admin_delete_user(id):
+    if id is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid id"}))
+
+    conn = get_connection()
+    c = conn.cursor()
+
+    c.execute("DELETE FROM users WHERE id = %s", (int(id),))
+
+    conn.commit()
+    conn.close()
+
+    return make_response("", 204)
 
 
 """
