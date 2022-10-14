@@ -21,6 +21,7 @@ app = Flask(__name__)
 app.secret_key = env["FLASK_SECRET_KEY"]
 app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=False)  # TODO: set SESSION_COOKIE_SECURE=True
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['PERFORMANCE_UPLOAD_FOLDER'] = "performance_images"
 
 privileged_account_types = ["Admin", "Band Member"]
 
@@ -526,6 +527,41 @@ def v1_private_admin_patch_performance(id):
     conn.close()
 
     return jsonify({"status": "success"})
+
+
+@app.route("/v1/private/new_performance_image", methods=["POST"])
+@requires_auth
+@requires_band_member
+def v1_private_new_performance_image():
+    performance_id = request.args.get("performance_id")
+    if performance_id is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid performance_id"}))
+
+    print(request)
+    if "file" not in request.files:
+        print("file not in request.files")
+        return make_response(jsonify({"status": "failure", "message": "No image provided."}), 400)
+
+    file = request.files['file']
+    if file.filename == '':
+        print("filename empty")
+        return make_response(jsonify({"status": "failure", "message": "No image provided."}), 400)
+
+    if file and allowed_file(file.filename):
+        file.save(os.path.join(app.config['PERFORMANCE_UPLOAD_FOLDER'], secure_filename(performance_id + ".webp")))
+
+        conn = get_connection()
+        c = conn.cursor()
+
+        c.execute("UPDATE performances SET image_src = %s WHERE performance_id = %s", (
+            DOMAIN + "/v1/performance_images/" + secure_filename(performance_id + ".webp")), performance_id)
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({"status": "success"})
+
+    return make_response(jsonify({"status": "failure", "message": "Error with image."}), 400)
 
 
 @app.route("/v1/private/admin/delete_video/<performance_id>/<video_id>", methods=["DELETE"])
