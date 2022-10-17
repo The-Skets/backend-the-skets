@@ -1,3 +1,4 @@
+import requests
 from flask import Flask, make_response, jsonify, request, session, send_from_directory
 from werkzeug.utils import secure_filename
 from flask_cors import CORS, cross_origin
@@ -96,6 +97,22 @@ def close_connections():
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def get_youtube_playlist(playlist_id):
+    r = requests.get(
+        f"https://youtube.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId={playlist_id}&key={env['GOOGLE_API_KEY']}&maxResults=50")
+
+    if r.status_code != 200 and r.status_code != 204:
+        return False
+
+    resp = r.json()
+    for i in resp["items"]:
+        title = i["snippet"]["title"]
+        thumbnail = i["snippet"]["title"]["default"]["url"]
+        video_id = i["snippet"]["resourceId"]["videoId"]
+
+        vid_r = requests.get("https://www.googleapis.com/youtube/v3/videos?part=")
 
 
 """
@@ -223,7 +240,7 @@ def sign_up():
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
 
-    pfp_url = DOMAIN+"/v1/pfp/default.jpg"
+    pfp_url = DOMAIN + "/v1/pfp/default.jpg"
 
     c.execute(
         "INSERT INTO users(username, password_hash, email, pfp_url, date_joined, account_type) VALUES(?, ?, ?, ?, ?, ?)",
@@ -534,10 +551,12 @@ def v1_private_admin_patch_performance(id):
 @requires_band_member
 def v1_private_new_performance_image():
     performance_id = request.args.get("performance_id")
+
     if performance_id is None:
         return make_response(jsonify({"status": "failure", "message": "Invalid performance_id"}))
 
     print(request)
+
     if "file" not in request.files:
         print("file not in request.files")
         return make_response(jsonify({"status": "failure", "message": "No image provided."}), 400)
@@ -554,7 +573,7 @@ def v1_private_new_performance_image():
         c = conn.cursor()
 
         c.execute("UPDATE performances SET image_src = %s WHERE performance_id = %s", (
-            DOMAIN + "/v1/performance_images/" + secure_filename(performance_id + ".webp")), performance_id)
+                DOMAIN + "/v1/performance_images/" + secure_filename(performance_id + ".webp")), performance_id)
 
         conn.commit()
         conn.close()
@@ -562,6 +581,34 @@ def v1_private_new_performance_image():
         return jsonify({"status": "success"})
 
     return make_response(jsonify({"status": "failure", "message": "Error with image."}), 400)
+
+
+@app.route("/v1/private/admin/new_performance", methods=["POST"])
+@requires_auth
+@requires_band_member
+def v1_private_admin_new_performance():
+    print(request.form)
+
+    playlist = request.form.get("playlist")
+    friendly_name = request.form.get("friendly-name")
+    url_name = request.form.get("url-name")
+    date = request.form.get("date-of-performance")
+    quality = request.form.get("quality")
+
+    if None in list(playlist, friendly_name, url_name, date, quality):
+        return make_response(jsonify({"status": "failure", "message": "Invalid form inputs"}), 401)
+
+    if "http" not in playlist:
+        return make_response(jsonify({"status": "failure", "message": "Invalid playlist"}), 401)
+
+    if "/" not in "date":
+        return make_response(
+            jsonify({"status": "failure", "message": "Invalid date. Ensure date is in format DD/MM/YYYY"}), 401)
+
+    if secure_filename(url_name) != url_name:
+        return make_response(jsonify({"status": "failure", "message": "Invalid url_name"}), 401)
+
+    return ""
 
 
 @app.route("/v1/private/admin/delete_video/<performance_id>/<video_id>", methods=["DELETE"])
@@ -804,7 +851,6 @@ def v1_private_admin_get_users():
 
         return jsonify(users)
 
-
     if str(limit) == 0:
         limit = "0"
 
@@ -1026,6 +1072,11 @@ def get_comments():
 @app.route("/v1/pfp/<path:path>")
 def v1_pfp(path):
     return send_from_directory('profile_pictures', path)
+
+
+@app.route("/v1/performance_images/<path:path>")
+def v1_performance_images(path):
+    return send_from_directory('performance_images', path)
 
 
 """
