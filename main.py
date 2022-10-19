@@ -1,7 +1,11 @@
+import math
+
 import requests
 from flask import Flask, make_response, jsonify, request, session, send_from_directory
+from urllib.parse import urlparse, parse_qs
 from werkzeug.utils import secure_filename
 from flask_cors import CORS, cross_origin
+from multiprocessing import Process
 from functools import wraps
 import datetime
 import mariadb
@@ -22,7 +26,7 @@ app = Flask(__name__)
 app.secret_key = env["FLASK_SECRET_KEY"]
 app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=False)  # TODO: set SESSION_COOKIE_SECURE=True
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['PERFORMANCE_UPLOAD_FOLDER'] = "performance_images"
+app.config['PERFORMANCE_UPLOAD_FOLDER'] = "C:\\Users\\annan\\Documents\projects\\the-skets-rewrite\\backend-the-skets\\performance_images"
 
 privileged_account_types = ["Admin", "Band Member"]
 
@@ -99,20 +103,99 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-def get_youtube_playlist(playlist_id):
+def convert_youtube_duration_to_seconds(duration):
+    """
+    Taken from "https://stackoverflow.com/a/58004773/10981578".
+    Takes ISO 8601 string and converts it into seconds of duration.
+    """
+    day_time = duration.split('T')
+    day_duration = day_time[0].replace('P', '')
+    day_list = day_duration.split('D')
+
+    if len(day_list) == 2:
+        day = int(day_list[0]) * 60 * 60 * 24
+        day_list = day_list[1]
+    else:
+        day = 0
+        day_list = day_list[0]
+
+    hour_list = day_time[1].split('H')
+    if len(hour_list) == 2:
+        hour = int(hour_list[0]) * 60 * 60
+        hour_list = hour_list[1]
+    else:
+        hour = 0
+        hour_list = hour_list[0]
+
+    minute_list = hour_list.split('M')
+
+    if len(minute_list) == 2:
+        minute = int(minute_list[0]) * 60
+        minute_list = minute_list[1]
+    else:
+        minute = 0
+        minute_list = minute_list[0]
+
+    second_list = minute_list.split('S')
+
+    if len(second_list) == 2:
+        second = int(second_list[0])
+    else:
+        second = 0
+
+    return day + hour + minute + second
+
+
+def convert_youtube_playlist_to_temp_performance(playlist_id, url_name, friendly_name, image_src, date_of_event, quality):
+    """
+    Converts youtube playlist to a temporary performance
+    that can be edited by the user before deployment.
+    Ran as a new process.
+    """
     r = requests.get(
         f"https://youtube.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId={playlist_id}&key={env['GOOGLE_API_KEY']}&maxResults=50")
 
     if r.status_code != 200 and r.status_code != 204:
         return False
 
+    conn = get_connection()
+    c = conn.cursor()
+
+    c.execute("DELETE FROM temp_videos")
+    c.execute("DELETE FROM temp_performances")
+    c.execute(
+        "INSERT INTO temp_performances(url_name, friendly_name, image_src, date_of_event, quality) VALUES (?, ?, ?, ?, ?)",
+        (url_name, friendly_name, image_src, date_of_event, quality))
+
     resp = r.json()
     for i in resp["items"]:
         title = i["snippet"]["title"]
-        thumbnail = i["snippet"]["title"]["default"]["url"]
+        vid_url_name = secure_filename(title.strip().replace(" ", "_"))
+        thumbnail = i["snippet"]["thumbnails"]["default"]["url"]
         video_id = i["snippet"]["resourceId"]["videoId"]
 
-        vid_r = requests.get("https://www.googleapis.com/youtube/v3/videos?part=")
+        vid_r = requests.get(f"https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id={video_id}&key={env['GOOGLE_API_KEY']}")
+
+        r_resp = vid_r.json()
+
+        video_duration = convert_youtube_duration_to_seconds(r_resp['items'][0]['contentDetails']['duration'])
+
+        minutes = str(math.floor(video_duration / 60))
+        seconds = str(math.floor(video_duration % 60))
+
+        if len(seconds) == 1:
+            seconds = "0"+seconds
+
+        converted_duration = f"{minutes}:{seconds}"
+
+        c.execute(
+            "INSERT INTO temp_videos(performance_id, friendly_name, url_name, src, thumbnail_url, length) VALUES (?, ?, ?, ?, ?, ?)",
+            (url_name, title, vid_url_name, video_id, thumbnail, converted_duration))
+
+    conn.commit()
+    conn.close()
+
+    return True
 
 
 """
@@ -595,20 +678,103 @@ def v1_private_admin_new_performance():
     date = request.form.get("date-of-performance")
     quality = request.form.get("quality")
 
-    if None in list(playlist, friendly_name, url_name, date, quality):
-        return make_response(jsonify({"status": "failure", "message": "Invalid form inputs"}), 401)
+    if None in [playlist, friendly_name, url_name, date, quality]:
+        return make_response(jsonify({"status": "failure", "message": "Invalid form inputs"}), 400)
 
     if "http" not in playlist:
-        return make_response(jsonify({"status": "failure", "message": "Invalid playlist"}), 401)
+        return make_response(jsonify({"status": "failure", "message": "Invalid playlist"}), 400)
 
-    if "/" not in "date":
+    if "/" not in date:
         return make_response(
-            jsonify({"status": "failure", "message": "Invalid date. Ensure date is in format DD/MM/YYYY"}), 401)
+            jsonify({"status": "failure", "message": "Invalid date. Ensure date is in format DD/MM/YYYY"}), 400)
 
     if secure_filename(url_name) != url_name:
-        return make_response(jsonify({"status": "failure", "message": "Invalid url_name"}), 401)
+        return make_response(jsonify({"status": "failure", "message": "Invalid url_name"}), 400)
 
-    return ""
+    playlist = urlparse(playlist)
+    playlist = parse_qs(playlist.query)["list"][0]
+
+    conn = get_connection()
+    c = conn.cursor()
+
+    c.execute("SELECT * FROM performances WHERE url_name = %s", (url_name,))
+    rows = c.fetchall()
+    conn.close()
+
+    if len(rows) > 0:
+        return make_response(jsonify({"status": "failure", "message": "Duplicate url_name."}), 400)
+
+    if "file" not in request.files:
+        print("file not in request.files")
+        return make_response(jsonify({"status": "failure", "message": "No image provided."}), 400)
+
+    file = request.files['file']
+    if file.filename == '':
+        print("filename empty")
+        return make_response(jsonify({"status": "failure", "message": "No image provided."}), 400)
+
+    if file and allowed_file(file.filename):
+        file.save(os.path.join(app.config['PERFORMANCE_UPLOAD_FOLDER'], secure_filename(url_name + ".webp")))
+
+        image_src = DOMAIN + "/v1/performance_images/" + secure_filename(url_name + ".webp")
+
+        # proc = Process(target=convert_youtube_playlist_to_temp_performance, args=(playlist, url_name, friendly_name, image_src, date, quality))
+        # proc.start()
+        # proc.join()
+
+        convert_youtube_playlist_to_temp_performance(playlist, url_name, friendly_name, image_src, date, quality)
+
+        return jsonify({"status": "success"})
+
+    return make_response(jsonify({"status": "failure", "message": "Error with image."}), 400)
+
+
+@app.route("/v1/private/admin/get_temporary_performance")
+@requires_auth
+@requires_band_member
+def v1_private_admin_get_temporary_performance():
+    conn = get_connection()
+    c = conn.cursor()
+
+    performance_id = str(request.args.get("performance_id")).lower()
+    is_reversed = str(request.args.get("is_reversed")).lower()
+
+    c.execute("SELECT * FROM temp_performances WHERE url_name = %s", (performance_id,))
+    performance_row = c.fetchall()
+    performance_row = performance_row[0]
+
+    c.execute("SELECT * FROM temp_videos WHERE performance_id = %s ORDER BY id DESC LIMIT 25", (performance_id,))
+    video_rows = c.fetchall()
+
+    conn.close()
+
+    performances = []
+    videos = []
+
+    for j in video_rows:
+        videos.append({
+            "id": j[0],
+            "performance_id": j[1],
+            "name": j[2],
+            "url_name": j[3],
+            "src": j[4],
+            "thumbnail_url": j[5],
+            "length": j[6]
+        })
+
+    performances.append({
+        "url_name": performance_row[1],
+        "name": performance_row[2],
+        "thumbnail_url": performance_row[3],
+        "date": performance_row[4],
+        "quality": performance_row[5],
+        "videos": videos,
+    })
+
+    if is_reversed == "true":
+        performances.reverse()
+
+    return jsonify(performances)
 
 
 @app.route("/v1/private/admin/delete_video/<performance_id>/<video_id>", methods=["DELETE"])
