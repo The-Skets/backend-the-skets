@@ -47,7 +47,6 @@ def create_connection_pool():
         password=env["SQL_PASSWORD"],
         pool_name="TheSkets",
         database="TheSkets",
-        autocommit=True,
         pool_size=5
     )
 
@@ -148,7 +147,7 @@ def convert_youtube_duration_to_seconds(duration):
 
 def convert_youtube_playlist_to_temp_performance(playlist_id, url_name, friendly_name, image_src, date_of_event, quality):
     """
-    Converts youtube playlist to a temporary performance
+    Converts YouTube playlist to a temporary performance
     that can be edited by the user before deployment.
     Ran as a new process.
     """
@@ -777,6 +776,30 @@ def v1_private_admin_get_temporary_performance():
     return jsonify(performances)
 
 
+@app.route("/v1/private/admin/publish_temporary_performance")
+@requires_auth
+@requires_band_member
+def v1_private_admin_publish_temporary_performance():
+    """
+    TODO: document.
+    """
+    performance_id = request.args.get("performance_id")
+
+    if performance_id is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid performance_id"}), 400)
+
+    conn = get_connection()
+    c = conn.cursor()
+
+    c.execute("INSERT INTO performances(url_name, friendly_name, image_src, date_of_event, quality) SELECT (url_name, friendly_name, image_src, date_of_event, quality) FROM temp_performances WHERE performance_id = %s", (performance_id,))
+    c.execute("INSERT INTO videos(performance_id, friendly_name, url_name, src, thumbnail_url, length) SELECT (performance_id, friendly_name, url_name, src, thumbnail_url, length) FROM temp_videos WHERE performance_id = %s", (performance_id,))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "success"})
+
+
 @app.route("/v1/private/admin/delete_video/<performance_id>/<video_id>", methods=["DELETE"])
 @requires_auth
 @requires_band_member
@@ -860,6 +883,83 @@ def v1_private_admin_patch_video(performance_id, video_id):
     conn.close()
 
     return jsonify({"status": "success"})
+
+
+@app.route("/v1/private/admin/patch_temporary_video/<youtube_video_id>")
+@requires_auth
+@requires_band_member
+def v1_private_admin_patch_temporary_video(youtube_video_id):
+    """
+    Modifies temporary video matching the supplied ids.
+    Must use PATCH method.
+    """
+
+    valid_patches = {
+        "name": "friendly_name",
+        "url_name": "url_name",
+        "thumbnail url": "image_src",
+        "length": "length",
+        "youtube video": "src",
+    }
+
+    data = json.loads(request.data)
+    print(data)
+
+    if youtube_video_id is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid youtube_video_id"}), 400)
+
+    if data.get("patching") is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid patching (Not provided)"}), 400)
+
+    if data.get("new_value") is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid new_value"}), 400)
+
+    youtube_video_id = str(youtube_video_id).strip()
+
+    patching = str(data.get("patching")).strip().lower()
+    new_value = str(data.get("new_value")).strip()
+
+    if valid_patches.get(patching) is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid patching (Not valid)"}), 400)
+
+    safe_patching = valid_patches[patching]
+
+    conn = get_connection()
+    c = conn.cursor()
+
+    # This string manipulation is (hopefully) safe as it's validated against the dictionary
+    c.execute(f"UPDATE temp_videos SET {safe_patching} = %s WHERE src = %s",
+              (new_value, youtube_video_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "success"})
+
+
+@app.route("/v1/private/admin/delete_temporary_video/<youtube_video_id>")
+@requires_auth
+@requires_band_member
+def v1_private_admin_patch_temporary_video(youtube_video_id):
+    """
+    Deletes temporary video matching the supplied ids.
+    Must use DELETE method.
+    """
+
+    if youtube_video_id is None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid youtube_video_id"}), 400)
+
+    youtube_video_id = str(youtube_video_id).strip()
+
+    conn = get_connection()
+    c = conn.cursor()
+
+    c.execute("DELETE FROM temp_videos WHERE src = %s", (youtube_video_id,))
+
+    conn.commit()
+    conn.close()
+
+    return make_response("", 204)
+
 
 
 @app.route("/v1/private/admin/get_videos")
