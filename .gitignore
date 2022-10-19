@@ -3,3 +3,7 @@ profile_pictures/*
 
 !profile_pictures/default.jpg
 !profile_pictures/
+
+performance_images/*
+!performance_images/default.png
+!performance_images

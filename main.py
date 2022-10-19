@@ -1,32 +1,30 @@
-import math
-
-import requests
 from flask import Flask, make_response, jsonify, request, session, send_from_directory
 from urllib.parse import urlparse, parse_qs
 from werkzeug.utils import secure_filename
 from flask_cors import CORS, cross_origin
-from multiprocessing import Process
 from functools import wraps
+import requests
 import datetime
 import mariadb
 import atexit
 import bcrypt
+import math
 import json
 import re
 import os
 
 from config import env
 
-UPLOAD_FOLDER = 'C:\\Users\\annan\\Documents\projects\\the-skets-rewrite\\backend-the-skets\\profile_pictures'  # TODO: Change this before deployment
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
 FORBIDDEN_NAMES = ["default"]  # Ensure all these are lower-case.
 DOMAIN = 'http://192.168.1.209:5000'
 
 app = Flask(__name__)
+
 app.secret_key = env["FLASK_SECRET_KEY"]
-app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=False)  # TODO: set SESSION_COOKIE_SECURE=True
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['PERFORMANCE_UPLOAD_FOLDER'] = "C:\\Users\\annan\\Documents\projects\\the-skets-rewrite\\backend-the-skets\\performance_images"
+app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=True)  # TODO: set SESSION_COOKIE_SECURE=True
+app.config['UPLOAD_FOLDER'] = 'C:\\Users\\annan\\Documents\projects\\the-skets-rewrite\\backend-the-skets\\profile_pictures'  # TODO: Change this before deployment
+app.config['PERFORMANCE_UPLOAD_FOLDER'] = "C:\\Users\\annan\\Documents\projects\\the-skets-rewrite\\backend-the-skets\\performance_images"  # TODO: Change this before deployment
 
 privileged_account_types = ["Admin", "Band Member"]
 
@@ -113,10 +111,8 @@ def convert_youtube_duration_to_seconds(duration):
 
     if len(day_list) == 2:
         day = int(day_list[0]) * 60 * 60 * 24
-        day_list = day_list[1]
     else:
         day = 0
-        day_list = day_list[0]
 
     hour_list = day_time[1].split('H')
     if len(hour_list) == 2:
@@ -145,7 +141,7 @@ def convert_youtube_duration_to_seconds(duration):
     return day + hour + minute + second
 
 
-def convert_youtube_playlist_to_temp_performance(playlist_id, url_name, friendly_name, image_src, date_of_event, quality):
+def convert_youtube_playlist_to_temp_performance(playlist_id, url_name, friendly_name, image_src, date_of_event, quality, unix_timestamp):
     """
     Converts YouTube playlist to a temporary performance
     that can be edited by the user before deployment.
@@ -163,8 +159,8 @@ def convert_youtube_playlist_to_temp_performance(playlist_id, url_name, friendly
     c.execute("DELETE FROM temp_videos")
     c.execute("DELETE FROM temp_performances")
     c.execute(
-        "INSERT INTO temp_performances(url_name, friendly_name, image_src, date_of_event, quality) VALUES (?, ?, ?, ?, ?)",
-        (url_name, friendly_name, image_src, date_of_event, quality))
+        "INSERT INTO temp_performances(url_name, friendly_name, image_src, date_of_event, quality, unix_timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+        (url_name, friendly_name, image_src, date_of_event, quality, unix_timestamp))
 
     resp = r.json()
     for i in resp["items"]:
@@ -326,7 +322,7 @@ def sign_up():
 
     c.execute(
         "INSERT INTO users(username, password_hash, email, pfp_url, date_joined, account_type) VALUES(?, ?, ?, ?, ?, ?)",
-        (username, hashed, email, pfp_url, date_joined, "member"))  # TODO: add default pfp_url
+        (username, hashed, email, pfp_url, date_joined, "member"))
 
     conn.commit()
     conn.close()
@@ -478,7 +474,7 @@ def v1_private_admin_get_performances():
     if request.args.get("performance_id") is not None:
         performance_id = str(request.args.get("performance_id")).lower()
 
-        c.execute("SELECT * FROM performances WHERE url_name = %s", (performance_id,))
+        c.execute("SELECT * FROM performances WHERE url_name = %s ORDER BY unix_timestamp", (performance_id,))
         performance_row = c.fetchall()
         performance_row = performance_row[0]
 
@@ -522,7 +518,7 @@ def v1_private_admin_get_performances():
 
         return jsonify(performances)
 
-    c.execute("SELECT * FROM performances")
+    c.execute("SELECT * FROM performances ORDER BY unix_timestamp")
     rows = c.fetchall()
 
     for i in rows:
@@ -676,6 +672,7 @@ def v1_private_admin_new_performance():
     url_name = request.form.get("url-name")
     date = request.form.get("date-of-performance")
     quality = request.form.get("quality")
+    unix_timestamp = 0
 
     if None in [playlist, friendly_name, url_name, date, quality]:
         return make_response(jsonify({"status": "failure", "message": "Invalid form inputs"}), 400)
@@ -684,6 +681,12 @@ def v1_private_admin_new_performance():
         return make_response(jsonify({"status": "failure", "message": "Invalid playlist"}), 400)
 
     if "/" not in date:
+        return make_response(
+            jsonify({"status": "failure", "message": "Invalid date. Ensure date is in format DD/MM/YYYY"}), 400)
+
+    try:
+        unix_timestamp = datetime.datetime.timestamp(datetime.datetime(int(date.split("/")[2]), int(date.split("/")[1]), int(date.split("/")[0]))) * 1000
+    except (ValueError, IndexError):
         return make_response(
             jsonify({"status": "failure", "message": "Invalid date. Ensure date is in format DD/MM/YYYY"}), 400)
 
@@ -696,7 +699,7 @@ def v1_private_admin_new_performance():
     conn = get_connection()
     c = conn.cursor()
 
-    c.execute("SELECT * FROM performances WHERE url_name = %s", (url_name,))
+    c.execute("SELECT * FROM performances WHERE url_name = %s ORDER BY unix_timestamp", (url_name,))
     rows = c.fetchall()
     conn.close()
 
@@ -721,7 +724,7 @@ def v1_private_admin_new_performance():
         # proc.start()
         # proc.join()
 
-        convert_youtube_playlist_to_temp_performance(playlist, url_name, friendly_name, image_src, date, quality)
+        convert_youtube_playlist_to_temp_performance(playlist, url_name, friendly_name, image_src, date, quality, unix_timestamp)
 
         return jsonify({"status": "success"})
 
@@ -784,6 +787,7 @@ def v1_private_admin_publish_temporary_performance():
     TODO: document.
     """
     performance_id = request.args.get("performance_id")
+    performance_id = performance_id.strip()
 
     if performance_id is None:
         return make_response(jsonify({"status": "failure", "message": "Invalid performance_id"}), 400)
@@ -791,8 +795,8 @@ def v1_private_admin_publish_temporary_performance():
     conn = get_connection()
     c = conn.cursor()
 
-    c.execute("INSERT INTO performances(url_name, friendly_name, image_src, date_of_event, quality) SELECT (url_name, friendly_name, image_src, date_of_event, quality) FROM temp_performances WHERE performance_id = %s", (performance_id,))
-    c.execute("INSERT INTO videos(performance_id, friendly_name, url_name, src, thumbnail_url, length) SELECT (performance_id, friendly_name, url_name, src, thumbnail_url, length) FROM temp_videos WHERE performance_id = %s", (performance_id,))
+    c.execute("INSERT INTO performances(url_name, friendly_name, image_src, date_of_event, quality, unix_timestamp) SELECT url_name, friendly_name, image_src, date_of_event, quality, unix_timestamp FROM temp_performances WHERE url_name = %s", (performance_id,))
+    c.execute("INSERT INTO videos(performance_id, friendly_name, url_name, src, thumbnail_url, length) SELECT performance_id, friendly_name, url_name, src, thumbnail_url, length FROM temp_videos WHERE performance_id = %s", (performance_id,))
 
     conn.commit()
     conn.close()
@@ -820,7 +824,7 @@ def v1_private_admin_delete_video(performance_id, video_id):
     conn = get_connection()
     c = conn.cursor()
 
-    # c.execute("DELETE FROM videos WHERE url_name = %s AND performance_id = %s", (video_id, performance_id,))  TODO: Uncomment this after testing
+    c.execute("DELETE FROM videos WHERE url_name = %s AND performance_id = %s", (video_id, performance_id,))
 
     conn.commit()
     conn.close()
@@ -1060,9 +1064,9 @@ def v1_private_admin_get_comments():
     return jsonify(final)
 
 
+@app.route("/v1/private/admin/delete_comment/<id>", methods=["DELETE"])
 @requires_auth
 @requires_band_member
-@app.route("/v1/private/admin/delete_comment/<id>", methods=["DELETE"])
 def v1_private_admin_delete_comment(id):
     """
     Deletes comment matching id. Must use DELETE method.
@@ -1080,9 +1084,9 @@ def v1_private_admin_delete_comment(id):
     return make_response("", 204)
 
 
+@app.route("/v1/private/admin/get_users")
 @requires_auth
 @requires_band_member
-@app.route("/v1/private/admin/get_users")
 def v1_private_admin_get_users():
     """
     Returns all users. Optional argument id returns only one user matching the id.
@@ -1228,7 +1232,7 @@ def get_performances():
     conn = get_connection()
     c = conn.cursor()
 
-    c.execute("SELECT * FROM performances")
+    c.execute("SELECT * FROM performances ORDER BY unix_timestamp")
     rows = c.fetchall()
     conn.close()
 
