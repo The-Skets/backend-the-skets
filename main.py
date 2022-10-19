@@ -232,7 +232,7 @@ Private API Routes
 
 @app.route("/v1/private/sign_in", methods=["POST"])
 @cross_origin(supports_credentials=True)
-def sign_in():
+def v1_private_sign_in():
     data = request.get_json()
 
     if data["password"] is None or data["username"] is None:
@@ -939,7 +939,7 @@ def v1_private_admin_patch_temporary_video(youtube_video_id):
 @app.route("/v1/private/admin/delete_temporary_video/<youtube_video_id>")
 @requires_auth
 @requires_band_member
-def v1_private_admin_patch_temporary_video(youtube_video_id):
+def v1_private_admin_delete_temporary_video(youtube_video_id):
     """
     Deletes temporary video matching the supplied ids.
     Must use DELETE method.
