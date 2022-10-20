@@ -22,7 +22,7 @@ DOMAIN = 'http://192.168.1.209:5000'
 app = Flask(__name__)
 
 app.secret_key = env["FLASK_SECRET_KEY"]
-app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=True)  # TODO: set SESSION_COOKIE_SECURE=True
+app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=False)  # TODO: set SESSION_COOKIE_SECURE=True
 app.config['UPLOAD_FOLDER'] = 'C:\\Users\\annan\\Documents\projects\\the-skets-rewrite\\backend-the-skets\\profile_pictures'  # TODO: Change this before deployment
 app.config['PERFORMANCE_UPLOAD_FOLDER'] = "C:\\Users\\annan\\Documents\projects\\the-skets-rewrite\\backend-the-skets\\performance_images"  # TODO: Change this before deployment
 
@@ -571,8 +571,21 @@ def v1_private_admin_delete_performance(id):
     Deletes performance matching the performance_id of <id>.
     Must use DELETE method.
     """
-    # TODO: Add actual delete logic.
-    print("deleting " + id)
+    if id == None:
+        return make_response(jsonify({"status": "failure", "message": "Invalid performance id"}))
+
+    id = str(id).strip()
+
+    conn = get_connection()
+    c = conn.cursor()
+
+    c.execute("DELETE FROM performances WHERE url_name = %s", (id,))
+    c.execute("DELETE FROM videos WHERE performance_id = %s", (id,))
+    c.execute("DELETE FROM comments WHERE performance_id = %s", (id,))
+
+    conn.commit()
+    conn.close()
+
     return make_response('', 204)
 
 
@@ -743,7 +756,12 @@ def v1_private_admin_get_temporary_performance():
 
     c.execute("SELECT * FROM temp_performances WHERE url_name = %s", (performance_id,))
     performance_row = c.fetchall()
-    performance_row = performance_row[0]
+
+    try:
+        performance_row = performance_row[0]
+    except IndexError:
+        conn.close()
+        return make_response(jsonify({"status": "failure", "message": "Performance does not exist."}), 400)
 
     c.execute("SELECT * FROM temp_videos WHERE performance_id = %s ORDER BY id DESC LIMIT 25", (performance_id,))
     video_rows = c.fetchall()
@@ -845,7 +863,7 @@ def v1_private_admin_patch_video(performance_id, video_id):
     valid_patches = {
         "name": "friendly_name",
         "url_name": "url_name",
-        "thumbnail url": "image_src",
+        "thumbnail url": "thumbnail_url",
         "length": "length",
         "youtube video": "src",
         "performance": "performance_id"
@@ -889,7 +907,7 @@ def v1_private_admin_patch_video(performance_id, video_id):
     return jsonify({"status": "success"})
 
 
-@app.route("/v1/private/admin/patch_temporary_video/<youtube_video_id>")
+@app.route("/v1/private/admin/patch_temporary_video/<youtube_video_id>", methods=["PATCH"])
 @requires_auth
 @requires_band_member
 def v1_private_admin_patch_temporary_video(youtube_video_id):
@@ -901,7 +919,7 @@ def v1_private_admin_patch_temporary_video(youtube_video_id):
     valid_patches = {
         "name": "friendly_name",
         "url_name": "url_name",
-        "thumbnail url": "image_src",
+        "thumbnail url": "thumbnail_url",
         "length": "length",
         "youtube video": "src",
     }
@@ -940,7 +958,7 @@ def v1_private_admin_patch_temporary_video(youtube_video_id):
     return jsonify({"status": "success"})
 
 
-@app.route("/v1/private/admin/delete_temporary_video/<youtube_video_id>")
+@app.route("/v1/private/admin/delete_temporary_video/<youtube_video_id>", methods=["DELETE"])
 @requires_auth
 @requires_band_member
 def v1_private_admin_delete_temporary_video(youtube_video_id):
