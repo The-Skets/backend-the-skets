@@ -23,8 +23,10 @@ app = Flask(__name__)
 
 app.secret_key = env["FLASK_SECRET_KEY"]
 app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=False)  # TODO: set SESSION_COOKIE_SECURE=True
-app.config['UPLOAD_FOLDER'] = 'C:\\Users\\annan\\Documents\projects\\the-skets-rewrite\\backend-the-skets\\profile_pictures'  # TODO: Change this before deployment
-app.config['PERFORMANCE_UPLOAD_FOLDER'] = "C:\\Users\\annan\\Documents\projects\\the-skets-rewrite\\backend-the-skets\\performance_images"  # TODO: Change this before deployment
+app.config[
+    'UPLOAD_FOLDER'] = 'C:\\Users\\annan\\Documents\projects\\the-skets-rewrite\\backend-the-skets\\profile_pictures'  # TODO: Change this before deployment
+app.config[
+    'PERFORMANCE_UPLOAD_FOLDER'] = "C:\\Users\\annan\\Documents\projects\\the-skets-rewrite\\backend-the-skets\\performance_images"  # TODO: Change this before deployment
 
 privileged_account_types = ["Admin", "Band Member"]
 
@@ -141,7 +143,8 @@ def convert_youtube_duration_to_seconds(duration):
     return day + hour + minute + second
 
 
-def convert_youtube_playlist_to_temp_performance(playlist_id, url_name, friendly_name, image_src, date_of_event, quality, unix_timestamp):
+def convert_youtube_playlist_to_temp_performance(playlist_id, url_name, friendly_name, image_src, date_of_event,
+                                                 quality, unix_timestamp):
     """
     Converts YouTube playlist to a temporary performance
     that can be edited by the user before deployment.
@@ -169,7 +172,8 @@ def convert_youtube_playlist_to_temp_performance(playlist_id, url_name, friendly
         thumbnail = i["snippet"]["thumbnails"]["default"]["url"]
         video_id = i["snippet"]["resourceId"]["videoId"]
 
-        vid_r = requests.get(f"https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id={video_id}&key={env['GOOGLE_API_KEY']}")
+        vid_r = requests.get(
+            f"https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id={video_id}&key={env['GOOGLE_API_KEY']}")
 
         r_resp = vid_r.json()
 
@@ -179,7 +183,7 @@ def convert_youtube_playlist_to_temp_performance(playlist_id, url_name, friendly
         seconds = str(math.floor(video_duration % 60))
 
         if len(seconds) == 1:
-            seconds = "0"+seconds
+            seconds = "0" + seconds
 
         converted_duration = f"{minutes}:{seconds}"
 
@@ -201,7 +205,7 @@ Middleware
 def requires_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if "logged_in" not in session or session["logged_in"] == False:
+        if "logged_in" not in session or session["logged_in"] is False:
             print("Not Logged In", session)  # TODO: Remove debug prints
             return make_response(jsonify({"status": "failure", "message": "Unauthorized"}), 401)
         return f(*args, **kwargs)
@@ -213,7 +217,7 @@ def requires_band_member(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if "profile" not in session or "account_type" not in session["profile"] or session["profile"][
-            "account_type"] not in privileged_account_types:
+                "account_type"] not in privileged_account_types:
             print("Not Band Member", session)  # TODO: Remove debug prints
             return make_response(jsonify({"status": "failure", "message": "Unauthorized"}), 401)
         return f(*args, **kwargs)
@@ -698,7 +702,8 @@ def v1_private_admin_new_performance():
             jsonify({"status": "failure", "message": "Invalid date. Ensure date is in format DD/MM/YYYY"}), 400)
 
     try:
-        unix_timestamp = datetime.datetime.timestamp(datetime.datetime(int(date.split("/")[2]), int(date.split("/")[1]), int(date.split("/")[0]))) * 1000
+        unix_timestamp = datetime.datetime.timestamp(
+            datetime.datetime(int(date.split("/")[2]), int(date.split("/")[1]), int(date.split("/")[0]))) * 1000
     except (ValueError, IndexError):
         return make_response(
             jsonify({"status": "failure", "message": "Invalid date. Ensure date is in format DD/MM/YYYY"}), 400)
@@ -737,7 +742,8 @@ def v1_private_admin_new_performance():
         # proc.start()
         # proc.join()
 
-        convert_youtube_playlist_to_temp_performance(playlist, url_name, friendly_name, image_src, date, quality, unix_timestamp)
+        convert_youtube_playlist_to_temp_performance(playlist, url_name, friendly_name, image_src, date, quality,
+                                                     unix_timestamp)
 
         return jsonify({"status": "success"})
 
@@ -813,8 +819,12 @@ def v1_private_admin_publish_temporary_performance():
     conn = get_connection()
     c = conn.cursor()
 
-    c.execute("INSERT INTO performances(url_name, friendly_name, image_src, date_of_event, quality, unix_timestamp) SELECT url_name, friendly_name, image_src, date_of_event, quality, unix_timestamp FROM temp_performances WHERE url_name = %s", (performance_id,))
-    c.execute("INSERT INTO videos(performance_id, friendly_name, url_name, src, thumbnail_url, length) SELECT performance_id, friendly_name, url_name, src, thumbnail_url, length FROM temp_videos WHERE performance_id = %s", (performance_id,))
+    c.execute(
+        "INSERT INTO performances(url_name, friendly_name, image_src, date_of_event, quality, unix_timestamp) SELECT url_name, friendly_name, image_src, date_of_event, quality, unix_timestamp FROM temp_performances WHERE url_name = %s",
+        (performance_id,))
+    c.execute(
+        "INSERT INTO videos(performance_id, friendly_name, url_name, src, thumbnail_url, length) SELECT performance_id, friendly_name, url_name, src, thumbnail_url, length FROM temp_videos WHERE performance_id = %s",
+        (performance_id,))
 
     conn.commit()
     conn.close()
@@ -981,7 +991,6 @@ def v1_private_admin_delete_temporary_video(youtube_video_id):
     conn.close()
 
     return make_response("", 204)
-
 
 
 @app.route("/v1/private/admin/get_videos")
